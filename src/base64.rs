@@ -90,7 +90,7 @@ impl <T: AsRef<[u8]>> ToBase64 for T {
                 },
                 [first] => { 
                     w.write_char(BASE_64_TO_CHAR[(first >> 2) as usize] as char)?; 
-                    w.write_char(BASE_64_TO_CHAR[(first & 4 << 4) as usize] as char)?;
+                    w.write_char(BASE_64_TO_CHAR[(first % 4 << 4) as usize] as char)?;
                     w.write_str("=")?; 
                     w.write_str("=")?; 
                 },
