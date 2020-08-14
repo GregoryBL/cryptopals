@@ -1,7 +1,10 @@
 //! Wrapper class for a Vec<u8> for crypto operations and conformances
-use std::ops;
-use std;
-use std::convert::TryInto;
+
+extern crate base64;
+
+use std::fmt::{Display, Formatter};
+use std::ops::{BitXor, Deref};
+
 use super::hex::{
     HexError, 
     FromHexString,
@@ -14,9 +17,6 @@ pub struct Buffer(pub Vec<u8>);
 impl Buffer {
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-    pub fn from_string(str: &str) -> Self {
-        Buffer(str.as_bytes().to_vec())
     }
 
     pub fn append(&mut self, byte: u8) {
@@ -33,56 +33,39 @@ impl Buffer {
         Buffer(iter.flat_map(|lets| {
             // Handle the chunk having fewer characters
             let zip_key: &[u8] = &key_ref[..lets.len()];
-            // println!("{}", String::from_utf8(zip_key.to_vec()).unwrap());
             lets.iter().zip(zip_key).map( |(first, second)| {
-                *first ^ *second
+                first ^ second
             })
         }).collect::<Vec<u8>>())
     }
 
     pub fn from_base64(string: &str) -> Buffer {
-        let mut backing_vec = Vec::new();
+        Buffer(base64::decode(string).unwrap())
+    }
 
-        for quad in string.replace(&"\n", &"").replace(&" ", &"").as_bytes().chunks(4) {
-            let mut store = 0 as u64;
-            for letter in quad {
-                store = store << 6;
-                let val = match letter {
-                    65..=90 => letter - 65, // caps
-                    97..=122 => letter - 97 + 26, // lower
-                    48..=57 => letter - 48 + 52, // nums
-                    43 => 62, // +
-                    47 => 63, // /
-                    61 => 0, // =
-                    _ => {println!("{}", letter); println!("bad: {}", letter); panic!("Shouldn't have non-base64 bytes.")}
-                };
-                store += val as u64;
-            }
-            let mut to_add: [u8; 3] = [0, 0, 0];
-            for num in 0..3 {
-                to_add[num] = ((store % 256) as u8).try_into().unwrap();
-                store = store >> 8;
-            }
-            for num in 0..3 {
-                // We mapped = -> 0 earlier and 0 is otherwise not valid
-                if to_add[2 - num] == 0 {
-                    continue
-                }
-                backing_vec.push(to_add[2 - num]);
-            }
-        }
-        Buffer(backing_vec)
+    pub fn to_base64(&self) -> String {
+        base64::encode(&self.0)
     }
 }
 
-impl std::convert::From<String> for Buffer {
-    fn from(item: String) -> Buffer {
-        Buffer(item.to_str().iter().cloned().collect())
+/// Allow things that turn into &[u8] to be converted to Buffer
+impl<T: AsRef<[u8]>> From<T> for Buffer {
+    fn from(other: T) -> Self {
+        let vec = other.as_ref().to_owned();
+        Buffer(vec)
     }
 }
 
-impl std::fmt::Display for Buffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+// Let buffers be used where &[u8]s are used
+impl Deref for Buffer {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+impl Display for Buffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let as_string = match std::str::from_utf8(&self.0) {
             Ok(v) => v,
             Err(e) => { eprintln!("  Error displaying buffer: {}", e); "?" },
@@ -91,22 +74,22 @@ impl std::fmt::Display for Buffer {
     }
 }
 
-impl ops::BitXor for Buffer {
+impl BitXor for Buffer {
     type Output = Self;
     fn bitxor(self, Buffer(rhs): Self) -> Self::Output {
         let Buffer(lhs) = self;
         Self(lhs.iter().zip(rhs.iter()).map( |(first, second)| {
-            *first ^ *second
+            first ^ second
         }).collect())
     }
 }
 
-impl ops::BitXor for &Buffer {
+impl BitXor for &Buffer {
     type Output = Buffer;
     fn bitxor(self, Buffer(rhs): Self) -> Self::Output {
         let Buffer(lhs) = self;
         Buffer(lhs.iter().zip(rhs.iter()).map( |(first, second)| {
-            *first ^ *second
+            first ^ second
         }).collect())
     }
 }
@@ -197,11 +180,5 @@ impl ToHexString for Buffer {
             Ok(val) => Ok(val),
             Err(_) => Err(HexError::InvalidStringLength),
         }
-    }
-}
-
-impl AsRef<[u8]> for Buffer {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
     }
 }
